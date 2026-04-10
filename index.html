@@ -4,6 +4,14 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>GRAVITAS — Scale → MIDI Controller</title>
+<meta name="description" content="Postal scale to MIDI controller via WebHID and Web MIDI API"/>
+<meta name="theme-color" content="#c8f135"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="GRAVITAS"/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="icon" href="favicon.svg" type="image/svg+xml"/>
+<link rel="apple-touch-icon" href="icon-192.svg"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400&display=swap" rel="stylesheet"/>
 <style>
@@ -303,7 +311,7 @@
 
   .btn-full { width: 100%; margin-top: 6px; }
 
-  /* ── OSC Mapping cards ────────────────────────────────── */
+  /* ── CC Mapping cards ────────────────────────────────── */
   .mapping-list { display: flex; flex-direction: column; gap: 8px; }
 
   .mapping-card {
@@ -348,7 +356,7 @@
   .log-line .ts { color: var(--dim); flex-shrink: 0; }
   .log-line.ok .msg { color: var(--accent); }
   .log-line.err .msg { color: var(--accent2); }
-  .log-line.osc .msg { color: #7eb8f7; }
+  .log-line.midi .msg { color: #7eb8f7; }
 
   /* ── Footer ───────────────────────────────────────────── */
   footer {
@@ -399,15 +407,15 @@
 
   <!-- ── Header ────────────────────────────────────────── -->
   <header>
-    <div class="logo">GRAVITAS <span>Scale → MIDI / OSC</span></div>
+    <div class="logo">GRAVITAS <span>Scale → MIDI</span></div>
     <div class="status-bar">
       <div class="pill" id="pill-hid">
         <div class="dot"></div>
         <span id="pill-hid-text">HID Disconnected</span>
       </div>
-      <div class="pill" id="pill-ws">
+      <div class="pill" id="pill-midi">
         <div class="dot"></div>
-        <span id="pill-ws-text">WS Disconnected</span>
+        <span id="pill-midi-text">MIDI Disconnected</span>
       </div>
     </div>
   </header>
@@ -436,7 +444,7 @@
             <div class="midi-cell-value" id="midi-float">0.000</div>
           </div>
           <div class="midi-cell">
-            <div class="midi-cell-label">OSC Sent</div>
+            <div class="midi-cell-label">MIDI Sent</div>
             <div class="midi-cell-value" id="osc-count">0</div>
           </div>
         </div>
@@ -446,7 +454,7 @@
         </div>
 
         <div style="margin-top:24px;">
-          <div class="panel-title" style="margin-bottom:12px;">OSC Message Log</div>
+          <div class="panel-title" style="margin-bottom:12px;">MIDI Log</div>
           <div class="log" id="log"></div>
         </div>
       </div>
@@ -506,35 +514,44 @@
         </div>
       </div>
 
-      <!-- OSC / WebSocket -->
+      <!-- MIDI Output -->
       <div class="panel">
-        <div class="panel-title">OSC Bridge <span class="tag" id="ws-tag">WebSocket</span></div>
+        <div class="panel-title">MIDI Output <span class="tag" id="midi-tag">Web MIDI</span></div>
 
-        <div class="control-group">
-          <label>Bridge Server URL</label>
-          <input type="text" id="ws-url" value="ws://localhost:8080"/>
+        <button class="btn btn-primary btn-full" id="btn-connect-midi">
+          Request MIDI Access
+        </button>
+
+        <div class="control-group" style="margin-top:14px;">
+          <label>Output Device</label>
+          <div class="row">
+            <select id="midi-output-select" style="flex:1;width:auto">
+              <option value="">— connect MIDI first —</option>
+            </select>
+            <button class="btn btn-ghost" id="btn-select-midi" style="flex-shrink:0">Select</button>
+          </div>
+          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);margin-top:6px;">
+            Mac IAC Driver appears here after enabling in Audio MIDI Setup
+          </div>
         </div>
-
-        <button class="btn btn-primary btn-full" id="btn-connect-ws">Connect Bridge</button>
-        <button class="btn btn-danger btn-full" style="margin-top:6px" id="btn-disconnect-ws" disabled>Disconnect</button>
 
         <div class="divider"></div>
 
-        <div class="panel-title" style="margin-bottom:12px;">OSC Mappings</div>
+        <div class="panel-title" style="margin-bottom:12px;">CC Mappings</div>
         <div class="mapping-list" id="mapping-list"></div>
 
         <!-- Add mapping -->
         <div style="margin-top:12px;">
-          <div class="control-group">
-            <label>OSC Address</label>
-            <input type="text" id="new-addr" value="/live/track/1/volume" placeholder="/live/..."/>
-          </div>
-          <div class="row" style="margin-top:4px;">
-            <select id="new-type" style="flex:1;width:auto">
-              <option value="float">Float 0–1</option>
-              <option value="midi">Int 0–127</option>
-            </select>
-            <button class="btn btn-ghost" id="btn-add-mapping" style="flex-shrink:0">+ Add</button>
+          <div class="row" style="gap:8px;align-items:flex-end;">
+            <div style="flex:1;">
+              <label>Channel</label>
+              <input type="number" id="new-channel" value="1" min="1" max="16"/>
+            </div>
+            <div style="flex:2;">
+              <label>CC Number</label>
+              <input type="number" id="new-cc" value="1" min="0" max="127"/>
+            </div>
+            <button class="btn btn-ghost" id="btn-add-mapping" style="flex-shrink:0;">+ Add</button>
           </div>
         </div>
       </div>
@@ -543,28 +560,36 @@
   </main>
 
   <footer>
-    <span>GRAVITAS v1.0 — WebHID + WebOSC</span>
-    <span>Requires Chrome/Edge · AbletonOSC on port 9000</span>
+    <span>GRAVITAS v2.0 — WebHID + Web MIDI</span>
+    <span>Requires Chrome/Edge · Mac IAC Driver for Ableton</span>
   </footer>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════
+//  SERVICE WORKER REGISTRATION
+// ═══════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+// ═══════════════════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════════════════
 const state = {
   hidDevice: null,
-  ws: null,
+  midiAccess: null,
+  midiOutput: null,
   weightRaw: 0,
   weightSmoothed: 0,
   weightHistory: [],
   midiValue: 0,
   floatValue: 0,
-  oscCount: 0,
+  midiSentCount: 0,
   pollTimer: null,
   mappings: [
-    { id: 1, address: '/live/track/1/volume', type: 'float' },
-    { id: 2, address: '/live/master/volume',  type: 'float' },
+    { id: 1, channel: 1, cc: 1,  label: 'Ch 1  CC 1'  },
+    { id: 2, channel: 1, cc: 7,  label: 'Ch 1  CC 7'  },
   ],
   nextMappingId: 3,
 };
@@ -577,7 +602,7 @@ const weightDisplay = $('weight-display');
 const unitDisplay   = $('unit-display');
 const midiVal       = $('midi-val');
 const midiFloat     = $('midi-float');
-const oscCount      = $('osc-count');
+const midiCount     = $('osc-count');
 const vuFill        = $('vu-fill');
 const logEl         = $('log');
 const mappingList   = $('mapping-list');
@@ -593,7 +618,6 @@ function log(msg, type = '') {
   line.innerHTML = `<span class="ts">${ts}</span><span class="msg">${msg}</span>`;
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
-  // keep max 200 lines
   while (logEl.children.length > 200) logEl.removeChild(logEl.firstChild);
 }
 
@@ -660,19 +684,14 @@ function onHIDReport(event) {
   const data = event.data;
   if (data.byteLength < 6) return;
 
-  const status  = data.getUint8(1);
-  const unitCode = data.getUint8(2);
-  const scaling  = data.getInt8(3);   // signed
+  const unitCode  = data.getUint8(2);
+  const scaling   = data.getInt8(3);   // signed
   const weightRaw = data.getUint8(4) + (data.getUint8(5) << 8);
 
-  // Unit codes: 2=g, 11=oz, 12=lb
-  const unitMap = { 2:'g', 11:'oz', 12:'lb' };
-  const unit = unitMap[unitCode] || 'g';
-
   // Apply scaling (e.g. scaling=-1 means divide by 10)
-  const weight = scaling < 0 ? weightRaw / Math.pow(10, -scaling) : weightRaw * Math.pow(10, scaling);
-
-  state.weightRaw = weight;
+  state.weightRaw = scaling < 0
+    ? weightRaw / Math.pow(10, -scaling)
+    : weightRaw * Math.pow(10, scaling);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -713,13 +732,8 @@ function processWeight() {
   state.floatValue = norm;
   state.midiValue  = midi;
 
-  // Display weight in selected unit
-  const displayWeight = unit === 'g' ? state.weightRaw
-    : unit === 'oz' ? state.weightRaw
-    : state.weightRaw;
-
-  updateDisplay(displayWeight, unit, norm, midi);
-  sendOSC(norm, midi);
+  updateDisplay(state.weightRaw, unit, norm, midi);
+  sendMIDI(midi);
 }
 
 function updateDisplay(weight, unit, norm=0, midi=0) {
@@ -736,66 +750,85 @@ function updateDisplay(weight, unit, norm=0, midi=0) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  WEBSOCKET → OSC BRIDGE
+//  WEB MIDI
 // ═══════════════════════════════════════════════════════════
-$('btn-connect-ws').addEventListener('click', connectWS);
-$('btn-disconnect-ws').addEventListener('click', disconnectWS);
+$('btn-connect-midi').addEventListener('click', connectMIDI);
+$('btn-select-midi').addEventListener('click', selectMIDIOutput);
 
-function connectWS() {
-  const url = $('ws-url').value.trim();
+async function connectMIDI() {
+  if (!navigator.requestMIDIAccess) {
+    log('Web MIDI API not supported — use Chrome/Edge', 'err');
+    return;
+  }
   try {
-    state.ws = new WebSocket(url);
-    state.ws.onopen = () => {
-      setPillStatus('ws', true, 'Bridge Connected');
-      $('btn-connect-ws').disabled = true;
-      $('btn-disconnect-ws').disabled = false;
-      $('ws-tag').textContent = 'LIVE';
-      $('ws-tag').classList.add('live');
-      log(`WebSocket connected: ${url}`, 'ok');
-    };
-    state.ws.onclose = () => {
-      setPillStatus('ws', false, 'WS Disconnected');
-      $('btn-connect-ws').disabled = false;
-      $('btn-disconnect-ws').disabled = true;
-      $('ws-tag').textContent = 'WebSocket';
-      $('ws-tag').classList.remove('live');
-      log('WebSocket closed');
-    };
-    state.ws.onerror = () => log('WebSocket error', 'err');
-    state.ws.onmessage = (e) => {
-      const d = JSON.parse(e.data);
-      if (d.type === 'connected') log(`Bridge ready → OSC target ${d.oscTarget}`, 'ok');
-    };
+    state.midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+    refreshMIDIOutputs();
+    state.midiAccess.onstatechange = refreshMIDIOutputs;
+    $('btn-connect-midi').textContent = 'Refresh Devices';
+    log('MIDI access granted — select an output device', 'ok');
   } catch(e) {
-    log(`WS error: ${e.message}`, 'err');
+    log(`MIDI error: ${e.message}`, 'err');
   }
 }
 
-function disconnectWS() {
-  if (state.ws) { state.ws.close(); state.ws = null; }
+function refreshMIDIOutputs() {
+  const sel = $('midi-output-select');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— select output —</option>';
+  for (const [id, output] of state.midiAccess.outputs) {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = output.name;
+    if (id === prev) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  // Re-validate current output
+  if (state.midiOutput) {
+    const stillExists = state.midiAccess.outputs.has(state.midiOutput.id);
+    if (!stillExists) {
+      state.midiOutput = null;
+      setPillStatus('midi', false, 'MIDI Disconnected');
+      $('midi-tag').textContent = 'Web MIDI';
+      $('midi-tag').classList.remove('live');
+    }
+  }
 }
 
-function sendOSC(floatVal, midiVal_) {
-  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+function selectMIDIOutput() {
+  if (!state.midiAccess) {
+    log('Request MIDI access first', 'err');
+    return;
+  }
+  const id = $('midi-output-select').value;
+  if (!id) {
+    log('Select an output device from the list', 'err');
+    return;
+  }
+  state.midiOutput = state.midiAccess.outputs.get(id) || null;
+  if (state.midiOutput) {
+    setPillStatus('midi', true, state.midiOutput.name);
+    $('midi-tag').textContent = 'LIVE';
+    $('midi-tag').classList.add('live');
+    log(`MIDI output selected: ${state.midiOutput.name}`, 'ok');
+  } else {
+    setPillStatus('midi', false, 'MIDI Disconnected');
+    log('Could not open MIDI output', 'err');
+  }
+}
+
+function sendMIDI(midiValue) {
+  if (!state.midiOutput || state.mappings.length === 0) return;
 
   state.mappings.forEach(m => {
-    const args = m.type === 'float'
-      ? [{ type: 'f', value: parseFloat(floatVal.toFixed(4)) }]
-      : [{ type: 'i', value: midiVal_ }];
-
-    state.ws.send(JSON.stringify({
-      type: 'osc',
-      address: m.address,
-      args
-    }));
-
-    state.oscCount++;
-    oscCount.textContent = state.oscCount;
+    const channel = Math.max(1, Math.min(16, m.channel)) - 1;  // 0-indexed
+    const cc      = Math.max(0, Math.min(127, m.cc));
+    const value   = Math.max(0, Math.min(127, midiValue));
+    state.midiOutput.send([0xB0 | channel, cc, value]);
+    state.midiSentCount++;
   });
 
-  if (state.mappings.length > 0) {
-    log(`OSC → ${state.mappings.map(m=>m.address).join(', ')} [${midiVal_}/127, ${floatVal.toFixed(3)}]`, 'osc');
-  }
+  midiCount.textContent = state.midiSentCount;
+  log(`MIDI CC → ${state.mappings.map(m=>`Ch${m.channel} CC${m.cc}`).join(', ')} [${midiValue}]`, 'midi');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -808,8 +841,8 @@ function renderMappings() {
     card.className = 'mapping-card';
     card.innerHTML = `
       <div>
-        <div class="addr">${m.address}</div>
-        <div class="meta">${m.type === 'float' ? 'Float 0–1' : 'Int 0–127'}</div>
+        <div class="addr">Ch ${m.channel}  ·  CC ${m.cc}</div>
+        <div class="meta">MIDI Control Change · 0–127</div>
       </div>
       <button class="rm" data-id="${m.id}" title="Remove">×</button>
     `;
@@ -822,12 +855,13 @@ function renderMappings() {
 }
 
 $('btn-add-mapping').addEventListener('click', () => {
-  const addr = $('new-addr').value.trim();
-  const type = $('new-type').value;
-  if (!addr.startsWith('/')) { log('OSC address must start with /', 'err'); return; }
-  state.mappings.push({ id: state.nextMappingId++, address: addr, type });
+  const channel = parseInt($('new-channel').value) || 1;
+  const cc      = parseInt($('new-cc').value);
+  if (isNaN(cc) || cc < 0 || cc > 127) { log('CC number must be 0–127', 'err'); return; }
+  if (channel < 1 || channel > 16)     { log('Channel must be 1–16', 'err'); return; }
+  state.mappings.push({ id: state.nextMappingId++, channel, cc, label: `Ch ${channel} CC ${cc}` });
   renderMappings();
-  log(`Added mapping: ${addr} [${type}]`, 'ok');
+  log(`Added mapping: Ch ${channel}  CC ${cc}`, 'ok');
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -853,13 +887,17 @@ $('unit-select').addEventListener('change', () => { state.weightHistory = []; })
 //  INIT
 // ═══════════════════════════════════════════════════════════
 renderMappings();
-log('GRAVITAS ready — connect scale and OSC bridge to begin', 'ok');
+log('GRAVITAS ready — connect scale and MIDI output to begin', 'ok');
 setPillStatus('hid', false, 'HID Disconnected');
-setPillStatus('ws', false, 'WS Disconnected');
+setPillStatus('midi', false, 'MIDI Disconnected');
 
 if (!navigator.hid) {
   log('⚠ WebHID not available — use Chrome or Edge', 'err');
   $('btn-connect-hid').disabled = true;
+}
+if (!navigator.requestMIDIAccess) {
+  log('⚠ Web MIDI not available — use Chrome or Edge', 'err');
+  $('btn-connect-midi').disabled = true;
 }
 </script>
 </body>
