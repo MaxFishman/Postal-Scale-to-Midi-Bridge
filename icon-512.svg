@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#0a0a0b"/>
+  <!-- scale platform -->
+  <rect x="112" y="384" width="288" height="32" rx="16" fill="#c8f135"/>
+  <!-- stem -->
+  <rect x="240" y="240" width="32" height="160" fill="#c8f135"/>
+  <!-- crossbar -->
+  <rect x="144" y="208" width="224" height="40" rx="20" fill="#c8f135"/>
+  <!-- left pan arc -->
+  <path d="M144 208 Q80 208 80 256 Q80 304 160 304 Q224 304 224 256 Q224 208 176 208Z" fill="none" stroke="#c8f135" stroke-width="18"/>
+  <!-- right pan arc -->
+  <path d="M368 208 Q432 208 432 256 Q432 304 352 304 Q288 304 288 256 Q288 208 336 208Z" fill="none" stroke="#c8f135" stroke-width="18"/>
+  <!-- MIDI dot accent -->
+  <circle cx="256" cy="144" r="22" fill="#c8f135"/>
+</svg>
