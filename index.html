@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>GRAVITAS — Scale → MIDI Controller</title>
-<meta name="description" content="Postal scale to MIDI controller via WebHID and Web MIDI API"/>
+<meta name="description" content="USB scale to MIDI controller via WebHID and Web MIDI API — supports DYMO S100, U.S. Solid Precision Balance, and generic USB HID scales"/>
 <meta name="theme-color" content="#c8f135"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
@@ -468,8 +468,16 @@
         <div class="panel-title">Scale Connection <span class="tag" id="hid-tag">WebHID</span></div>
 
         <div class="connect-area">
+          <div class="control-group" style="margin-bottom:8px;">
+            <label>Scale Type</label>
+            <select id="scale-type-select">
+              <option value="dymo">DYMO S100 Postal Scale</option>
+              <option value="ussolid">U.S. Solid Precision Balance</option>
+              <option value="generic">Generic USB Scale</option>
+            </select>
+          </div>
           <button class="btn btn-primary btn-full" id="btn-connect-hid">
-            Connect DYMO S100
+            Connect Scale
           </button>
           <button class="btn btn-danger btn-full" id="btn-disconnect-hid" disabled>
             Disconnect Scale
@@ -622,12 +630,21 @@ function log(msg, type = '') {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  DYMO S100 — WebHID
-//  Vendor ID: 0x0922 (Dymo), Product ID: 0x8003
-//  HID report: [reportId, status, unit, scale, weightLo, weightHi]
+//  SUPPORTED SCALES — WebHID
+//  All USB HID scales share the same 6-byte report format:
+//  [reportId, status, unit, scale, weightLo, weightHi]
 // ═══════════════════════════════════════════════════════════
-const DYMO_VENDOR_ID  = 0x0922;
-const DYMO_PRODUCT_ID = 0x8003;
+const SCALE_PROFILES = {
+  dymo:    { name: 'DYMO S100',                vendorId: 0x0922, productId: 0x8003 },
+  ussolid: { name: 'U.S. Solid Precision Balance', vendorId: 0x0922, productId: null },
+  generic: { name: 'Generic USB Scale',        vendorId: null,   productId: null  },
+};
+
+// USB HID Usage Page for Weighing Devices (0x8D)
+// Many lab / postal scales share Vendor ID 0x0922 or use other IDs
+// but all follow the same HID scale report structure.
+
+const HID_USAGE_PAGE_SCALE = 0x008D;
 
 $('btn-connect-hid').addEventListener('click', connectScale);
 $('btn-disconnect-hid').addEventListener('click', disconnectScale);
@@ -638,9 +655,24 @@ async function connectScale() {
     return;
   }
   try {
-    const devices = await navigator.hid.requestDevice({
-      filters: [{ vendorId: DYMO_VENDOR_ID }]
-    });
+    const scaleType = $('scale-type-select').value;
+    const profile = SCALE_PROFILES[scaleType];
+
+    // Build HID filter based on selected profile
+    const filters = [];
+    if (profile.vendorId) {
+      const f = { vendorId: profile.vendorId };
+      if (profile.productId) f.productId = profile.productId;
+      filters.push(f);
+    }
+
+    // For "generic" mode (no filter), use empty filters so the user
+    // can pick any HID device; we pass usagePage filter to narrow to scales.
+    const requestOpts = filters.length
+      ? { filters }
+      : { filters: [{ usagePage: HID_USAGE_PAGE_SCALE }] };
+
+    const devices = await navigator.hid.requestDevice(requestOpts);
     if (!devices.length) { log('No scale selected', 'err'); return; }
     const device = devices[0];
     await device.open();
@@ -648,12 +680,13 @@ async function connectScale() {
 
     device.addEventListener('inputreport', onHIDReport);
 
-    setPillStatus('hid', true, device.productName || 'DYMO Scale');
+    setPillStatus('hid', true, device.productName || profile.name);
     $('btn-connect-hid').disabled = true;
     $('btn-disconnect-hid').disabled = false;
+    $('scale-type-select').disabled = true;
     $('hid-tag').textContent = 'LIVE';
     $('hid-tag').classList.add('live');
-    log(`Connected: ${device.productName} (${device.vendorId.toString(16)}:${device.productId.toString(16)})`, 'ok');
+    log(`Connected: ${device.productName || profile.name} (${device.vendorId.toString(16)}:${device.productId.toString(16)})`, 'ok');
 
     startPolling();
   } catch(e) {
@@ -671,6 +704,7 @@ async function disconnectScale() {
   setPillStatus('hid', false, 'HID Disconnected');
   $('btn-connect-hid').disabled = false;
   $('btn-disconnect-hid').disabled = true;
+  $('scale-type-select').disabled = false;
   $('hid-tag').textContent = 'WebHID';
   $('hid-tag').classList.remove('live');
   log('Scale disconnected');
@@ -678,9 +712,10 @@ async function disconnectScale() {
 }
 
 function onHIDReport(event) {
-  // DYMO S100 report format (6 bytes):
+  // Standard USB HID scale report format (6 bytes):
   // [0] report id, [1] status flags, [2] unit code,
   // [3] scaling (negative = decimal places), [4] weightLo, [5] weightHi
+  // Works for DYMO S100, U.S. Solid Precision Balance, and other USB HID scales.
   const data = event.data;
   if (data.byteLength < 6) return;
 

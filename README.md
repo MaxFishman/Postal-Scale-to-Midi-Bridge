@@ -1,12 +1,17 @@
 # GRAVITAS — Scale → MIDI/OSC Controller
 
-Turn physical weight from a DYMO S100 USB Postal Scale into MIDI control
+Turn physical weight from a USB scale into MIDI control
 messages sent to Ableton Live via OSC.
+
+Supported scales:
+- **DYMO S100** USB Postal Scale
+- **U.S. Solid Precision Balance** Digital Lab Scale
+- **Generic** USB HID scales (any scale using the standard USB HID scale protocol)
 
 ## Signal Chain
 
 ```
-DYMO S100 (USB HID) → Chrome/Edge (WebHID)
+USB Scale (HID) → Chrome/Edge (WebHID)
     → Weight value → MIDI map (0–127 / float 0–1)
         → WebSocket → Node.js bridge server
             → OSC UDP → AbletonOSC / Max4Live
@@ -60,9 +65,13 @@ Open `gravitas.html` in Chrome or Edge.
 
 ### 4. Connect the Scale
 
-1. Plug in your DYMO S100 via USB
-2. Click **Connect DYMO S100** — Chrome will show a device picker
-3. Select your scale
+1. Plug in your USB scale via USB
+2. Select your scale type from the **Scale Type** dropdown:
+   - **DYMO S100** — for DYMO postal scales
+   - **U.S. Solid Precision Balance** — for U.S. Solid lab scales
+   - **Generic USB Scale** — for any other USB HID scale
+3. Click **Connect Scale** — Chrome will show a device picker
+4. Select your scale from the list
 
 ### 5. Connect the OSC Bridge
 
@@ -108,9 +117,14 @@ const OSC_PORT = 9000;  // ← change this
 ## Troubleshooting
 
 **Scale not appearing in picker:**
-- Make sure the DYMO S100 is plugged in before clicking Connect
+- Make sure your scale is plugged in before clicking Connect
+- Select the correct Scale Type from the dropdown
+- Try the **Generic USB Scale** option if your specific model isn't listed
 - Try a different USB port/cable
-- On Linux, add a udev rule: `SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0922", MODE="0666"`
+- On Linux, add a udev rule for your scale's vendor ID:
+  - DYMO: `SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0922", MODE="0666"`
+  - U.S. Solid: `SUBSYSTEM=="hidraw", ATTRS{idVendor}=="0922", MODE="0666"`
+  - Or for any scale: `SUBSYSTEM=="hidraw", ATTRS{bInterfaceProtocol}=="02", MODE="0666"`
 
 **No weight changes:**
 - Check that the scale is powered (it powers via USB)
@@ -123,7 +137,9 @@ const OSC_PORT = 9000;  // ← change this
 
 ---
 
-## DYMO S100 HID Report Format
+## USB HID Scale Report Format
+
+All supported scales use the standard USB HID scale report protocol:
 
 ```
 Byte 0: Report ID
@@ -135,3 +151,6 @@ Byte 5: Weight MSB
 ```
 
 Weight = (Byte5 << 8 | Byte4) × 10^(Byte3)
+
+This format is shared by DYMO S100, U.S. Solid Precision Balance, and most
+other USB HID scales.
