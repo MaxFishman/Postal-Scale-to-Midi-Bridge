@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>GRAVITAS — Scale → MIDI Controller</title>
-<meta name="description" content="USB scale to MIDI controller via WebHID and Web MIDI API — supports DYMO S100, U.S. Solid Precision Balance, and generic USB HID scales"/>
+<meta name="description" content="USB scale to MIDI controller via WebHID, Web Serial, and Web MIDI API — supports DYMO S100, U.S. Solid Precision Balance, and generic USB scales"/>
 <meta name="theme-color" content="#c8f135"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
@@ -465,21 +465,36 @@
 
       <!-- Scale Connection -->
       <div class="panel">
-        <div class="panel-title">Scale Connection <span class="tag" id="hid-tag">WebHID</span></div>
+        <div class="panel-title">Scale Connection <span class="tag" id="hid-tag">Disconnected</span></div>
 
         <div class="connect-area">
           <div class="control-group" style="margin-bottom:8px;">
             <label>Scale Type</label>
             <select id="scale-type-select">
-              <option value="dymo">DYMO S100 Postal Scale</option>
-              <option value="ussolid">U.S. Solid Precision Balance</option>
-              <option value="generic">Generic USB Scale</option>
+              <option value="dymo">DYMO S100 Postal Scale (USB HID)</option>
+              <option value="ussolid">U.S. Solid Precision Balance (Serial)</option>
+              <option value="generic-hid">Generic USB Scale (HID)</option>
+              <option value="generic-serial">Generic USB Scale (Serial)</option>
             </select>
           </div>
-          <button class="btn btn-primary btn-full" id="btn-connect-hid">
+          <!-- Serial-only: baud rate -->
+          <div class="control-group" id="serial-options" style="display:none;margin-bottom:8px;">
+            <label>Baud Rate</label>
+            <select id="baud-rate-select">
+              <option value="1200">1200</option>
+              <option value="2400">2400</option>
+              <option value="4800">4800</option>
+              <option value="9600" selected>9600</option>
+              <option value="19200">19200</option>
+              <option value="38400">38400</option>
+              <option value="57600">57600</option>
+              <option value="115200">115200</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-full" id="btn-connect-scale">
             Connect Scale
           </button>
-          <button class="btn btn-danger btn-full" id="btn-disconnect-hid" disabled>
+          <button class="btn btn-danger btn-full" id="btn-disconnect-scale" disabled>
             Disconnect Scale
           </button>
         </div>
@@ -568,7 +583,7 @@
   </main>
 
   <footer>
-    <span>GRAVITAS v2.0 — WebHID + Web MIDI</span>
+    <span>GRAVITAS v2.1 — WebHID + Web Serial + Web MIDI</span>
     <span>Requires Chrome/Edge + IAC DRIVER · built by Max Fishman</span>
   </footer>
 </div>
@@ -585,7 +600,13 @@ if ('serviceWorker' in navigator) {
 //  STATE
 // ═══════════════════════════════════════════════════════════
 const state = {
+  // Scale connection (HID or Serial — only one active at a time)
   hidDevice: null,
+  serialPort: null,
+  serialReader: null,
+  serialReadable: null,
+  connectionType: null,   // 'hid' | 'serial' | null
+
   midiAccess: null,
   midiOutput: null,
   weightRaw: 0,
@@ -630,44 +651,103 @@ function log(msg, type = '') {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  SUPPORTED SCALES — WebHID
-//  All USB HID scales share the same 6-byte report format:
-//  [reportId, status, unit, scale, weightLo, weightHi]
+//  SCALE PROFILES
+//  HID scales use WebHID; serial scales use Web Serial API.
 // ═══════════════════════════════════════════════════════════
 const SCALE_PROFILES = {
-  dymo:    { name: 'DYMO S100',                vendorId: 0x0922, productId: 0x8003 },
-  ussolid: { name: 'U.S. Solid Precision Balance', vendorId: 0x0922, productId: null },
-  generic: { name: 'Generic USB Scale',        vendorId: null,   productId: null  },
+  dymo: {
+    name: 'DYMO S100',
+    type: 'hid',
+    vendorId: 0x0922,
+    productId: 0x8003,
+  },
+  ussolid: {
+    name: 'U.S. Solid Precision Balance',
+    type: 'serial',
+    defaultBaud: 9600,
+  },
+  'generic-hid': {
+    name: 'Generic USB Scale (HID)',
+    type: 'hid',
+    vendorId: null,
+    productId: null,
+  },
+  'generic-serial': {
+    name: 'Generic USB Scale (Serial)',
+    type: 'serial',
+    defaultBaud: 9600,
+  },
 };
 
 // USB HID Usage Page for Weighing Devices (0x8D)
-// Many lab / postal scales share Vendor ID 0x0922 or use other IDs
-// but all follow the same HID scale report structure.
-
 const HID_USAGE_PAGE_SCALE = 0x008D;
 
-$('btn-connect-hid').addEventListener('click', connectScale);
-$('btn-disconnect-hid').addEventListener('click', disconnectScale);
+// Show/hide serial options when scale type changes
+$('scale-type-select').addEventListener('change', () => {
+  const profile = SCALE_PROFILES[$('scale-type-select').value];
+  $('serial-options').style.display = profile.type === 'serial' ? '' : 'none';
+  if (profile.defaultBaud) $('baud-rate-select').value = profile.defaultBaud;
+});
 
+$('btn-connect-scale').addEventListener('click', connectScale);
+$('btn-disconnect-scale').addEventListener('click', disconnectScale);
+
+// ── Unified connect ──────────────────────────────────────
 async function connectScale() {
+  const scaleType = $('scale-type-select').value;
+  const profile = SCALE_PROFILES[scaleType];
+
+  if (profile.type === 'hid') {
+    await connectHID(profile);
+  } else {
+    await connectSerial(profile);
+  }
+}
+
+// ── Unified disconnect ───────────────────────────────────
+async function disconnectScale() {
+  stopPolling();
+  if (state.connectionType === 'hid') {
+    await disconnectHID();
+  } else if (state.connectionType === 'serial') {
+    await disconnectSerial();
+  }
+  state.connectionType = null;
+  setPillStatus('hid', false, 'Disconnected');
+  $('btn-connect-scale').disabled = false;
+  $('btn-disconnect-scale').disabled = true;
+  $('scale-type-select').disabled = false;
+  $('hid-tag').textContent = 'Disconnected';
+  $('hid-tag').classList.remove('live');
+  log('Scale disconnected');
+  updateDisplay(0, 'g');
+}
+
+function onScaleConnected(label) {
+  setPillStatus('hid', true, label);
+  $('btn-connect-scale').disabled = true;
+  $('btn-disconnect-scale').disabled = false;
+  $('scale-type-select').disabled = true;
+  $('hid-tag').textContent = 'LIVE';
+  $('hid-tag').classList.add('live');
+  startPolling();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  WebHID CONNECTION (DYMO, generic HID scales)
+// ═══════════════════════════════════════════════════════════
+async function connectHID(profile) {
   if (!navigator.hid) {
     log('WebHID not supported — use Chrome/Edge', 'err');
     return;
   }
   try {
-    const scaleType = $('scale-type-select').value;
-    const profile = SCALE_PROFILES[scaleType];
-
-    // Build HID filter based on selected profile
     const filters = [];
     if (profile.vendorId) {
       const f = { vendorId: profile.vendorId };
       if (profile.productId) f.productId = profile.productId;
       filters.push(f);
     }
-
-    // For "generic" mode (no filter), use empty filters so the user
-    // can pick any HID device; we pass usagePage filter to narrow to scales.
     const requestOpts = filters.length
       ? { filters }
       : { filters: [{ usagePage: HID_USAGE_PAGE_SCALE }] };
@@ -677,56 +757,130 @@ async function connectScale() {
     const device = devices[0];
     await device.open();
     state.hidDevice = device;
+    state.connectionType = 'hid';
 
     device.addEventListener('inputreport', onHIDReport);
-
-    setPillStatus('hid', true, device.productName || profile.name);
-    $('btn-connect-hid').disabled = true;
-    $('btn-disconnect-hid').disabled = false;
-    $('scale-type-select').disabled = true;
-    $('hid-tag').textContent = 'LIVE';
-    $('hid-tag').classList.add('live');
-    log(`Connected: ${device.productName || profile.name} (${device.vendorId.toString(16)}:${device.productId.toString(16)})`, 'ok');
-
-    startPolling();
-  } catch(e) {
+    const label = device.productName || profile.name;
+    log(`Connected (HID): ${label} (${device.vendorId.toString(16)}:${device.productId.toString(16)})`, 'ok');
+    onScaleConnected(label);
+  } catch (e) {
     log(`HID error: ${e.message}`, 'err');
   }
 }
 
-async function disconnectScale() {
-  stopPolling();
+async function disconnectHID() {
   if (state.hidDevice) {
     state.hidDevice.removeEventListener('inputreport', onHIDReport);
-    await state.hidDevice.close().catch(()=>{});
+    await state.hidDevice.close().catch(() => {});
     state.hidDevice = null;
   }
-  setPillStatus('hid', false, 'HID Disconnected');
-  $('btn-connect-hid').disabled = false;
-  $('btn-disconnect-hid').disabled = true;
-  $('scale-type-select').disabled = false;
-  $('hid-tag').textContent = 'WebHID';
-  $('hid-tag').classList.remove('live');
-  log('Scale disconnected');
-  updateDisplay(0, 'g');
 }
 
 function onHIDReport(event) {
   // Standard USB HID scale report format (6 bytes):
   // [0] report id, [1] status flags, [2] unit code,
   // [3] scaling (negative = decimal places), [4] weightLo, [5] weightHi
-  // Works for DYMO S100, U.S. Solid Precision Balance, and other USB HID scales.
   const data = event.data;
   if (data.byteLength < 6) return;
 
-  const unitCode  = data.getUint8(2);
-  const scaling   = data.getInt8(3);   // signed
+  const scaling   = data.getInt8(3);
   const weightRaw = data.getUint8(4) + (data.getUint8(5) << 8);
 
-  // Apply scaling (e.g. scaling=-1 means divide by 10)
   state.weightRaw = scaling < 0
     ? weightRaw / Math.pow(10, -scaling)
     : weightRaw * Math.pow(10, scaling);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  WEB SERIAL CONNECTION (U.S. Solid, generic serial scales)
+//
+//  U.S. Solid Precision Balance transmits ASCII lines over
+//  a virtual COM port (CH340 / CP2102 / FTDI chip).
+//  Typical line formats:
+//    "ST,GS,+  123.45,g\r\n"   (stable, gross, positive)
+//    "US,GS,+  123.45,g\r\n"   (unstable)
+//    "+  123.45 g\r\n"          (simple format)
+//    "   0.00 g\r\n"
+//
+//  The parser below extracts the first decimal number found
+//  in each line, making it tolerant of format variations.
+// ═══════════════════════════════════════════════════════════
+async function connectSerial(profile) {
+  if (!navigator.serial) {
+    log('Web Serial API not supported — use Chrome/Edge', 'err');
+    return;
+  }
+  try {
+    const port = await navigator.serial.requestPort();
+    const baudRate = parseInt($('baud-rate-select').value) || profile.defaultBaud || 9600;
+    await port.open({ baudRate });
+
+    state.serialPort = port;
+    state.connectionType = 'serial';
+
+    log(`Connected (Serial): ${profile.name} @ ${baudRate} baud`, 'ok');
+    onScaleConnected(profile.name);
+
+    // Start background serial reader
+    readSerialLoop(port);
+  } catch (e) {
+    log(`Serial error: ${e.message}`, 'err');
+  }
+}
+
+async function readSerialLoop(port) {
+  const decoder = new TextDecoderStream();
+  state.serialReadable = port.readable.pipeThrough(decoder);
+  state.serialReader = state.serialReadable.getReader();
+  let lineBuf = '';
+
+  try {
+    while (true) {
+      const { value, done } = await state.serialReader.read();
+      if (done) break;
+      lineBuf += value;
+      // Split on newlines
+      const lines = lineBuf.split(/\r?\n/);
+      lineBuf = lines.pop(); // keep incomplete tail
+      for (const line of lines) {
+        if (line.trim()) parseSerialLine(line);
+      }
+    }
+  } catch (e) {
+    // Reader cancelled during disconnect — expected
+    if (state.connectionType === 'serial') {
+      log(`Serial read error: ${e.message}`, 'err');
+    }
+  }
+}
+
+function parseSerialLine(line) {
+  // Extract numeric weight from common serial scale formats.
+  // Handles:
+  //   "ST,GS,+  123.45,g"   → 123.45
+  //   "US,GS,-  0.02,g"     → -0.02
+  //   "+  123.45 g"          → 123.45
+  //   "  0.00 g"             → 0
+  //   "123.45"               → 123.45
+  const m = line.match(/([+-]?\s*\d+\.?\d*)/);
+  if (m) {
+    const val = parseFloat(m[1].replace(/\s/g, ''));
+    if (!isNaN(val)) {
+      state.weightRaw = val;
+    }
+  }
+}
+
+async function disconnectSerial() {
+  if (state.serialReader) {
+    await state.serialReader.cancel().catch(() => {});
+    state.serialReader = null;
+  }
+  if (state.serialPort) {
+    await state.serialPort.close().catch(() => {});
+    state.serialPort = null;
+  }
+  state.serialReadable = null;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -914,7 +1068,7 @@ function setPillStatus(which, ok, text) {
 $('smooth').addEventListener('input', e => { $('smooth-val').textContent = e.target.value; });
 $('poll-rate').addEventListener('input', e => {
   $('poll-val').textContent = e.target.value;
-  if (state.hidDevice) startPolling(); // restart with new rate
+  if (state.connectionType) startPolling(); // restart with new rate
 });
 $('unit-select').addEventListener('change', () => { state.weightHistory = []; });
 
@@ -923,12 +1077,15 @@ $('unit-select').addEventListener('change', () => { state.weightHistory = []; })
 // ═══════════════════════════════════════════════════════════
 renderMappings();
 log('GRAVITAS ready — connect scale and MIDI output to begin', 'ok');
-setPillStatus('hid', false, 'HID Disconnected');
+setPillStatus('hid', false, 'Disconnected');
 setPillStatus('midi', false, 'MIDI Disconnected');
 
-if (!navigator.hid) {
-  log('⚠ WebHID not available — use Chrome or Edge', 'err');
-  $('btn-connect-hid').disabled = true;
+if (!navigator.hid && !navigator.serial) {
+  log('⚠ Neither WebHID nor Web Serial available — use Chrome or Edge', 'err');
+  $('btn-connect-scale').disabled = true;
+} else {
+  if (!navigator.hid)    log('ℹ WebHID not available — HID scales will not work', 'err');
+  if (!navigator.serial) log('ℹ Web Serial not available — serial scales will not work', 'err');
 }
 if (!navigator.requestMIDIAccess) {
   log('⚠ Web MIDI not available — use Chrome or Edge', 'err');
