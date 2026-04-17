@@ -1,7 +1,7 @@
 {
   "name": "GRAVITAS — Scale to MIDI",
   "short_name": "GRAVITAS",
-  "description": "Postal scale to MIDI controller via WebHID and Web MIDI API",
+  "description": "USB scale to MIDI controller via WebHID, Web Serial, and Web MIDI API",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "any",
