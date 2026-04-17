@@ -400,6 +400,46 @@
     vertical-align: middle;
   }
   .tag.live { border-color: var(--accent); color: var(--accent); }
+
+  /* ── MIDI Test / Learn ───────────────────────────────── */
+  .btn-test {
+    border-color: #7eb8f7;
+    color: #7eb8f7;
+  }
+  .btn-test:hover {
+    background: #7eb8f7;
+    color: var(--bg);
+  }
+  .btn-test:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+  .btn-test:disabled:hover {
+    background: transparent;
+    color: #7eb8f7;
+  }
+  .help-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid #7eb8f7;
+    padding: 10px 12px;
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    line-height: 1.7;
+    color: var(--muted);
+  }
+  .help-box strong {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .help-box ol {
+    margin: 6px 0 0 14px;
+    padding: 0;
+  }
+  .help-box li {
+    margin-bottom: 2px;
+  }
 </style>
 </head>
 <body>
@@ -556,6 +596,22 @@
           <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);margin-top:6px;">
             Mac IAC Driver appears here after enabling in Audio MIDI Setup
           </div>
+        </div>
+
+        <button class="btn btn-test btn-full" id="btn-midi-test" disabled>
+          🎛 Send MIDI Test (for Ableton Learn)
+        </button>
+
+        <div class="help-box" id="ableton-help">
+          <strong>Ableton MIDI Setup:</strong>
+          <ol>
+            <li>Open Ableton → Preferences → MIDI</li>
+            <li>Find the device you selected above (e.g. IAC Driver) in Ableton's <strong>MIDI Input</strong> list</li>
+            <li>Enable <strong>Track</strong> and <strong>Remote</strong> for that input</li>
+            <li>Click a parameter → press <strong>CMD/Ctrl + M</strong> (MIDI Map mode)</li>
+            <li>Click "Send MIDI Test" above — Ableton auto-learns it</li>
+            <li>Press <strong>CMD/Ctrl + M</strong> again to exit MIDI Map mode</li>
+          </ol>
         </div>
 
         <div class="divider"></div>
@@ -979,6 +1035,7 @@ function refreshMIDIOutputs() {
       setPillStatus('midi', false, 'MIDI Disconnected');
       $('midi-tag').textContent = 'Web MIDI';
       $('midi-tag').classList.remove('live');
+      $('btn-midi-test').disabled = true;
     }
   }
 }
@@ -998,11 +1055,69 @@ function selectMIDIOutput() {
     setPillStatus('midi', true, state.midiOutput.name);
     $('midi-tag').textContent = 'LIVE';
     $('midi-tag').classList.add('live');
+    $('btn-midi-test').disabled = false;
     log(`MIDI output selected: ${state.midiOutput.name}`, 'ok');
   } else {
     setPillStatus('midi', false, 'MIDI Disconnected');
+    $('btn-midi-test').disabled = true;
     log('Could not open MIDI output', 'err');
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MIDI TEST / LEARN
+//  Sends a CC sweep (0→127→0) so Ableton's MIDI Learn can
+//  detect the channel + CC automatically.
+// ═══════════════════════════════════════════════════════════
+$('btn-midi-test').addEventListener('click', sendMIDITest);
+
+let midiTestRunning = false;
+
+function sendMIDITest() {
+  if (!state.midiOutput) {
+    log('Select a MIDI output device first', 'err');
+    return;
+  }
+  if (state.mappings.length === 0) {
+    log('Add at least one CC mapping first', 'err');
+    return;
+  }
+  if (midiTestRunning) return;
+
+  midiTestRunning = true;
+  $('btn-midi-test').disabled = true;
+  $('btn-midi-test').textContent = '⏳ Sending Test…';
+
+  const steps = [];
+  // Ramp up 0→127
+  for (let v = 0; v <= 127; v += 4) steps.push(v);
+  steps.push(127);
+  // Ramp down 127→0
+  for (let v = 127; v >= 0; v -= 4) steps.push(v);
+  steps.push(0);
+
+  const mappingDesc = state.mappings.map(m => `Ch${m.channel} CC${m.cc}`).join(', ');
+  log(`🎛 MIDI Test → sending CC sweep on ${mappingDesc}`, 'ok');
+
+  let i = 0;
+  const interval = setInterval(() => {
+    if (i >= steps.length) {
+      clearInterval(interval);
+      midiTestRunning = false;
+      $('btn-midi-test').disabled = false;
+      $('btn-midi-test').textContent = '🎛 Send MIDI Test (for Ableton Learn)';
+      log('🎛 MIDI Test complete — check Ableton MIDI Learn', 'ok');
+      return;
+    }
+
+    const value = steps[i];
+    state.mappings.forEach(m => {
+      const channel = Math.max(1, Math.min(16, m.channel)) - 1;
+      const cc = Math.max(0, Math.min(127, m.cc));
+      state.midiOutput.send([0xB0 | channel, cc, value]);
+    });
+    i++;
+  }, 15); // ~15ms between steps for a smooth ~1s sweep
 }
 
 function sendMIDI(midiValue) {
