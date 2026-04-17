@@ -849,7 +849,7 @@ async function readSerialLoop(port) {
   } catch (e) {
     // Reader cancelled during disconnect — expected
     if (state.connectionType === 'serial') {
-      log(`Serial read error: ${e.message}`, 'err');
+      log(`Serial connection interrupted: ${e.message} — try reconnecting`, 'err');
     }
   }
 }
@@ -862,9 +862,9 @@ function parseSerialLine(line) {
   //   "+  123.45 g"          → 123.45
   //   "  0.00 g"             → 0
   //   "123.45"               → 123.45
-  const m = line.match(/([+-]?\s*\d+\.?\d*)/);
+  const m = line.match(/([+-]?\d+\.?\d*)/);
   if (m) {
-    const val = parseFloat(m[1].replace(/\s/g, ''));
+    const val = parseFloat(m[1]);
     if (!isNaN(val)) {
       state.weightRaw = val;
     }
@@ -1084,8 +1084,8 @@ if (!navigator.hid && !navigator.serial) {
   log('⚠ Neither WebHID nor Web Serial available — use Chrome or Edge', 'err');
   $('btn-connect-scale').disabled = true;
 } else {
-  if (!navigator.hid)    log('ℹ WebHID not available — HID scales will not work', 'err');
-  if (!navigator.serial) log('ℹ Web Serial not available — serial scales will not work', 'err');
+  if (!navigator.hid)    log('ℹ WebHID not available — HID scales will not work');
+  if (!navigator.serial) log('ℹ Web Serial not available — serial scales will not work');
 }
 if (!navigator.requestMIDIAccess) {
   log('⚠ Web MIDI not available — use Chrome or Edge', 'err');
